@@ -15,6 +15,7 @@ df_ree <- read.csv("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/r
 df_ree$id <- NULL
 df_ree$date = substr(df_ree$datetime,1,10)
 
+
 #check null values
 (cols_withNa <- apply(df_ree, 2, function(x) sum(is.na(x))))
 
@@ -25,8 +26,8 @@ df_demanda$datetime <- as.POSIXct(df_demanda$datetime)
 df_demanda$date <- as.Date(df_demanda$datetime, format="%d/%m/%Y")
 
 # dividir TRAIN - TEST
-df_demanda_train = df_demanda[df_demanda$date < '2020-06-01',]
-df_demanda_test = df_demanda[df_demanda$date >= '2020-06-01',]
+df_demanda_train = df_demanda[df_demanda$date < '2020-02-01',]
+df_demanda_test = df_demanda[(df_demanda$date >= '2020-02-01') & (df_demanda$date < '2020-03-01'),]
 
 # Transform into a tibble object
 df_demanda_train <- df_demanda_train %>%
@@ -116,15 +117,15 @@ gg_arma(model1)
 # Representar serie + predicción data test (modelo auto)
 #prediccion = forecast(model_auto, h = 50) #df_demanda_test$energy,
 prediction_model1<-predict(model1, n.ahead = 30)$pred
-plot(df_demanda_train$energy,col="grey",lwd=1.5,ylab="Demanda energética train + forecast", type = 'l', xlim=c(0,529))
+plot(df_demanda_train$energy,col="grey",lwd=1.5,ylab="Demanda energética train + forecast", type = 'l') #, xlim=c(0,700)
 lines(prediction_model1, col="blue",lwd=1.5)
-time_series_test = ts(df_demanda_test$energy, start = 519, end = 549)
+time_series_test = ts(df_demanda_test$energy, start = 763, end = 792)
 lines(time_series_test, col="green",lwd=1.5)
 
 # Residuals
-checkresiduals(model1)
-
 checkresiduals(prediction_model1)
+
+accuracy(prediction_model1, df_demanda_test$energy) 
 
 # MODELO AJUSTADO AUTOMÁTICAMENTE ---------------------------------------------------------------------------------------------------
 model_auto = auto.arima(df_demanda_train$energy)
@@ -134,13 +135,15 @@ summary(model_auto)
 # Representar serie + predicción data test (modelo auto)
 #prediccion = forecast(model_auto, h = 50) #df_demanda_test$energy,
 prediction_auto<-predict(model_auto, n.ahead = 30)$pred
-plot(df_demanda_train$energy,col="grey",lwd=1.5,ylab="Demanda energética train + forecast", type = 'l', xlim=c(0,529))
+plot(df_demanda_train$energy,col="grey",lwd=1.5,ylab="Demanda energética train + forecast", type = 'l') #, xlim=c(0,529)
 lines(prediction_auto, col="blue",lwd=1.5)
-time_series_test = ts(df_demanda_test$energy, start = 519, end = 549)
+time_series_test = ts(df_demanda_test$energy, start = 763, end = 792)
 lines(time_series_test, col="green",lwd=1.5)
 
 # errores
 checkresiduals(prediction_auto)
+
+accuracy(prediction_auto, df_demanda_test$energy)
 
 # SARIMA ---------------------------------------------------------------------------------------------------------------------------------
 fit <- df_demanda_train %>%

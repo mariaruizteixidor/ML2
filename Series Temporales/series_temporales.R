@@ -7,8 +7,8 @@ library(normtest)
 library(lmtest)
 library(forecast)
 
-setwd("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2")
-df_ree <- read.csv("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/ree.csv")
+setwd("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/Series Temporales/")
+df_ree <- read.csv("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/Series Temporales/ree.csv")
 
 #df_ree$datetime <- strptime(x = as.character(df_ree$datetime),
 #                                format = "%d/%m/%Y %H:%M")

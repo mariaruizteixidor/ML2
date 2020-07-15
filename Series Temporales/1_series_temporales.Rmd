@@ -21,13 +21,13 @@ output:
 
 # Introducción
 
-Los datos de este apartado de la práctica son datos de la demanda b.c en España. Es decir, la energía que, una vez de toda la generada, se ha vendido, comprado o utilizado para bombero, la que queda disponible para proveer a la población de España.
+Los datos de este apartado de la práctica son datos de la **demanda eléctrica** b.c en España. Es decir, a partir de toda la energía que se ha genera, se ha hace el balance de aquella parte que se vende, compra o utiliza para bombero, y finalmente queda aquella que queda **disponible para proveer a la población de España**.
 
-Ésta ha sido obtenido a través de la API de Red Eléctrica (REE). Se ha adjuntado el fichero con el que se han obtenido los datos. Éstos van desde enero 2018 hasta febrero 2020 para que no coincida el periodo que se quiere predecir con el COVID19 ya que dificultaría la práctica.
+Ésta ha sido obtenido a través de la **API de Red Eléctrica (REE)**. Se ha adjuntado el fichero con el que se han obtenido los datos. Éstos son diarios y van desde enero 2018 hasta febrero 2020 para que no coincida el periodo que se quiere predecir con el COVID19 ya que dificultaría la práctica.
 
 
 ```{r librerias y seed, echo = FALSE, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE)
 library(tidyverse)
 library(tsibble)
 library(fable)
@@ -38,23 +38,23 @@ library(lmtest)
 library(forecast)
 ```
 
-## 
+# Lectura de datos
 
 ```{r }
 setwd("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/Series Temporales")
 df_ree <- read.csv("~/Escritorio/MASTER/CUATRI3/MACHINE_LEARNING2/PRACTICA/ML2/Series Temporales/ree.csv")
+
+df_ree$id <- NULL
+df_ree$date = substr(df_ree$datetime,1,10)
 ```
 
 ```{r }
-df_ree$id <- NULL
-df_ree$date = substr(df_ree$datetime,1,10)
-
+# Fucniones
 mape <- function(actual,pred){
   mape <- mean(abs((actual - pred)/actual))*100
   return (mape)}
 
-# FUNCIÓN MY RESIDUALS
-
+# FUNCIÓN MY RESIDUALS (para comparar bien ACF y)
 my_tsresiduals <- function(data, ...){
   if(!fabletools::is_mable(data)){
     abort("gg_tsresiduals() must be used with a mable containing only one model.")
@@ -83,7 +83,7 @@ print.gg_tsensemble <- function(x, ...){
 
 ```
 
-# Lectura de datos
+Convertimos la fecha a un formato adecuado.
 ```{r }
 df_demanda <- df_ree %>%
   filter(subcategory == "Demanda en b.c.")
@@ -93,180 +93,269 @@ df_demanda$date <- as.Date(as.character(df_demanda$datetime)) #, format="%d/%m/%
 
 ```
 
-```{r }
-# dividir TRAIN - TEST
-# Train: enero 2018- enero 2020
-df_demanda_train = df_demanda[df_demanda$date < '2020-02-01',]
-# Test: febrero 2020
-df_demanda_test = df_demanda[(df_demanda$date > '2020-01-31') & (df_demanda$date <= '2020-02-10'),] #2020-03-01
+Dividimos Train - Test:
 
-df_demanda = df_demanda[(df_demanda$date < '2020-02-10'),] ##2020-03-01
+  - **Train**: enero 2018- enero 2020
+  - **Test**: 1-10 de febrero 2020
+```{r }
+
+df_demanda_train = df_demanda[df_demanda$date < '2020-02-01',]
+
+df_demanda_test = df_demanda[(df_demanda$date > '2020-01-31') & (df_demanda$date <= '2020-02-10'),] 
+
+df_demanda = df_demanda[(df_demanda$date < '2020-02-10'),]
 
 ```
 
 # Análisis previo series temporales
+
+Convertimos el dataframe a un objeto tsibble:
 ```{r }
-# Transform into a tibble object
+
 df_demanda_train <- df_demanda_train %>%
-  as_tsibble(index = date) #key = c(energy), index = datetime
+  as_tsibble(index = date) 
 
 df_demanda_test <- df_demanda_test %>%
-  as_tsibble(index = date) #key = c(energy), index = datetime# Descomposición clásica
+  as_tsibble(index = date) 
 
 df_demanda <- df_demanda %>%
-  as_tsibble(index = date) #key = c(energy), index = datetime# Descomposición clásica
+  as_tsibble(index = date)
 
 ```
 
+Representamos la serie temporal con la que se trabajará. A priori parece que sí hay cambios sistemáticos en media (no hay tendencia a largo plazo) pero no lo parece en varianza (las líneas de la envolvente en los límites superior e inferior de la serie varían).
 
 ```{r }
-# plot series temporales
-df_demanda_train %>%
+df_demanda %>%
   autoplot(energy) +
-  labs(title = "", subtitle = "") 
-
+  labs(title = "Evolución de la demanda eléctrica en España") 
 ```
 
+Observamos la descomposición aditiva de la serie. Observamos la serie descompuesta en la componente de tendencia, estacional y el residuo tras eliminar las componentes
+estacional y de tendencia.
 ```{r }
-#aditivo 
-df_demanda_train %>%
+
+df_demanda %>%
   model(classical_decomposition(energy, type = "additive")) %>%
   components() %>%
-  autoplot() + xlab(" ") +
-  ggtitle(" ")
+  autoplot() 
+
 ```
 
+Representamos la serie diferenciada.
+
+Se observa que tras la diferenciación la serie pierde la tendencia, parece estacionaria (sin cambios sistemáticos en media ni varianza).
 ```{r }
-# Diferenciación
-# Se observa que tras la diferenciación la serie pierde la tendencia, siendo claramente estacionaria en media.
-# yt = xt - x(t-1)
-df_demanda_train %>% autoplot( difference(energy)) +
-  xlab("  ") + ylab(" ") +
-  ggtitle("  ")
+df_demanda_train %>% autoplot( difference(energy)) + ggtitle("Diferenciación de la serie de la demanda energética  ")
 ```
 
+Para determinar de manera objetiva si necesario diferenciar se utiliza una prueba de raíz unitaria. En este contraste, la hipótesis nula es que los datos son estacionarios, y buscamos pruebas de que la hipótesis nula es falsa.
+
+En consecuencia, como es el caso, pequeños p-valores (por ejemplo, menos de 0,05) sugieren que es necesario diferenciar. El p-valor es menor que 0.05, lo que indica que la hipótesis nula es rechazada:
+
 ```{r }
-# Una forma de determinar más objetivamente si es necesario diferenciar es utilizar una prueba de raíz unitaria. 
-# En este contraste, la hipótesis nula es que los datos son estacionarios, y buscamos pruebas de que la hipótesis nula es falsa. En consecuencia, pequeños p-valores (por ejemplo, menos de 0,05) sugieren que es necesario diferenciar.
 df_demanda_train %>%
   features(energy, unitroot_kpss)
 ```
 
+Vemos que la serie diferenciada obtiene un p-valor mayor que 0.05:
 ```{r }
-#El p-valor es menor que 0.05, lo que indica que la hipótesis nula es rechazada.
-
 df_demanda_train %>%
   mutate(diff_close = difference(energy)) %>%
   features(diff_close, unitroot_kpss)
 ```
 
-```{r }
-#Comprobar si existen autocorrelaciones significaticas:
-df_demanda_train %>%
-  mutate(diff_close = difference(energy)) %>%
-  features(diff_close, ljung_box, lag = 10)
-```
+# Autocorrelaciones
 
-# MODELOS
+Como hemos visto, se trata de una serie no estacionaria, por lo que habrá que aplicar un modelo ARIMA o SARIMA. Este último permite incluir efectos de cambios repetitivos en periodos concretos de la serie, por lo que puede sernos útil.
 
- es posible utilizar las gráfica de ACF y PACF, para determinar los valores apropiados para p y q.
- Correlograma
- Gráfico en el que representamos los valores de la función de autocorrelación empírica r k contra los retardos k = 1, 2, ... , M donde típicamente M ≪ N .
- Vemos que  tiene muchos componentes significativas para algún retardo.
-df_demanda_train %>% ACF(difference(energy, 1)) %>% autoplot()
- Mejor observar el ACF y PACF sin la diferenciación primero
+Para empezar a definir los parámetros p,d,q utilizaremos las gráficas de correlogramas ACF y PACF. 
 
- el pico significativo en el retardo 7 del ACF sugiere un componente MA(1) estacional
- Vemos que hay unos picos estacionales cada 7 días -> componente estacional. 
- El pico significativo en el retardo 1 del ACF sugiere por lo menos una componente MA(2) no estacional 
+
+## Autocorrelación parcial
+
+Vemos que sigue un mismo patrón sinusoidal (desproporcional) y que va progresivamente disminuyendo. Vemos que tiene un pico alto en el primer retardo y que posteriormente se repiten picos cada 7 retardos. Esto implicaría que tiene una autocorrelación importante con los datos del día anterior y los de hace una semana, éstos últimos indican una componente estacional. 
+ 
+Esto tiene sentido ya que la demanda eléctrica depende mucho de los hábitos de consumo de los particulares, así como de las producciones de las empresas (entre semana y fin de semana).
+
+El pico significativo en el retardo 7 del ACF sugiere un componente MA(1) estacional. Los dos picos significativos en el retardo 1 y 2 del ACF sugiere por lo menos una componente MA(2) no estacional.
 
 ```{r }
 df_demanda_train %>% ACF(energy) %>% autoplot()
 ```
-### Autocorrelación parcial
 
- correlación que resulta después de eliminar el efecto de cualquier correlación en retardos más cortos
- autocorrelación entre los instantes t y t + k condicionada a  los valores que toma la serie en los instantes t + 1, t + 2, ... , t + k − 1 .
+## Autocorrelación parcial
 
-
- Mejor observar el ACF y PACF sin la diferenciación primero
-Se continúa observando picos estacionales a los 7 días 
- Sigue un comportamiento parecido al gráfico anterior: El pico significativo en el retardo 1 del ACF sugiere por lo menos una componente MA(2) no estacional 
-un pico en la primera componente, sugiriendo una componente autoregresiva por lo menos de valor 1.
+En este caso los valores están más acotados. Sin embargo, se continúan observando picos estacionales a los 7 días. Los dos picos significativos en el retardo 1 y 2, una componente MA(1) o MA(2) no estacional. El pico en el retardo 7 sugiere una componente MA(1) estacional.
 
 ```{r }
 df_demanda_train %>% PACF(energy) %>% autoplot()
-
-df_demanda1_diff <- difference(df_demanda_train$energy, 7)
 ```
+
+Como hemos comprobado en ambos gráficos hay una componente estacional importante, por lo que se va a proceder a probar directamente un modelo SARIMA.
 
 # SARIMA
+
 ## Ajuste 1
+
+Como hemos comentado, empezaremos ajustando un modelo que represente las componentes correladas con un número pequeño de valores anteriores (1 o 2). Además, reflejaremos la componente estacional.
 ```{r }
-# Probamos ajustando un modelo con componentes de 
 fit <- df_demanda_train %>%
-  model(arima = ARIMA(energy ~ pdq(0,0,2) + PDQ(0,0,2))) #pdq(0,0,2) + PDQ(0,0,2)
+  model(arima = ARIMA(energy ~ pdq(0,0,2) + PDQ(0,0,1))) #pdq(0,0,2) + PDQ(0,0,2)
 ```
+
+Como se observa, el modelo ya detecta una estacionalidad de 7 días:
 
 ```{r }
 report(fit)
-
 ```
+
+El modelo tiene que ser estacionario invertible. Representamos las raíces inversas para comprobar que todas ellas están dentro del círculo unitario. 
 
 ```{r }
 gg_arma(fit)
 ```
- Si mostramos los residuos vemos que aún no es un ruido blanco, aparecen picos que habría que evitar.
- Si observamos el gráfico ACF vemos que aún hay picos en retardos 14, 21, 28.. que hay que ajustar.
- Si observamos el gráfico PACF vemos que hay retardos en los mismos retardos con picos prácticamente.
-```{r }
+ 
+Si mostramos los residuos, vemos que aún no es un ruido blanco, aparecen picos que habría que evitar. Si observamos el gráfico ACF vemos que aún hay picos en retardos 14, 21, 28.. que hay que ajustar. Si observamos el gráfico PACF vemos que hay retardos en los mismos retardos con picos prácticamente.
 
+```{r }
 fit %>% my_tsresiduals()
-
-```
-
- Forecast
-```{r }
-
-
-forecast_1 =  forecast(fit, h=10) 
-```
-
-```{r }
-# PLot forecast
-#forecast %>% autoplot(df_demanda_train)
-forecast_1 %>% autoplot(df_demanda%>% filter(date >= "2020-01-01"))
-```
-
-```{r }
-# Residuals
-mape(df_demanda_test$energy, forecast_1$energy) 
-accuracy(forecast_1, df_demanda_test) #$energy
 ```
 
 ## Ajuste 2
-```{r }
 
+Probamos ajustando valores para modelar las componentes estacionales que hemos visto en los gráficos de autocorrelaciones de los residuos. Para ello añadimos D=1 para intentar recoger esa diferenciación semanal.
+
+```{r }
+fit2 <- df_demanda_train %>%
+  model(arima = ARIMA(energy ~  pdq(0,0,2) + PDQ(0,1,1))) 
 ```
 
 ```{r }
+report(fit2)
+```
 
+Comprobamos que se mantienen las raíces dentro del círculo:
+
+```{r }
+gg_arma(fit2)
+```
+
+Comprobamos los residuos. Vemos que muchos obtienen valores más cercanos a 0 pero quedan muchos aún con valores más altos, pueden corresponder a picos puntuales que quizás se mejorarían añadiendo una variable exógena con las festividades al año.
+
+Sin embargo, en cuanto a los gráficos de las autocorrelaciones vemos que han desaparecido los picos a los 7 días pero han aparecido otros en los retardos 2,3.
+
+```{r }
+fit2 %>% my_tsresiduals()
+```
+
+## Ajuste 3
+
+Intentamos reducir las correlaciones en los primeros retardos añadiendo d=1 en la parte no estacional. 
+
+```{r }
+fit3 <- df_demanda_train %>%
+  model(arima = ARIMA(energy ~  pdq(0,1,2) + PDQ(0,1,1))) 
 ```
 
 ```{r }
+report(fit3)
+```
 
+Sin embargo con esta configuración las raíces aparecen en los límites del círculo, por lo que no sería invertible y no es recomendable.
+```{r }
+gg_arma(fit3)
+```
+
+Aún así se muestran los residuos obtenidos.
+```{r }
+fit3 %>% my_tsresiduals()
+```
+
+Se ha intentado modificar más los parámetros pero no se ha logrado obtener una configuración que redujera más los picos de los correlogramas cumpliendo que sea invertible y estacionario. Por ello finalmente se ha procedido a ajustar un modelo SARIMA automáticamente.
+
+## Ajuste 4
+
+Se aplica el modelo SARIMA automático. 
+```{r }
+fit4 <- df_demanda_train %>%
+  model(arima = ARIMA(energy))
 ```
 
 ```{r }
-
+report(fit4)
 ```
 
 ```{r }
+gg_arma(fit4)
+```
 
+Si visualizamos los residuos, tienen un comportamiento parecido al modelo 2 ajustado. Sin embargo, como diferencia, vemos que los picos que hay todavía en el correlograma están en el retardo 14, y posteriormente cada 7.
+```{r }
+fit4 %>% my_tsresiduals()
+```
+
+Entre este modelo y el modelo ajuste 2, se ha decidido realizar las predicciones con este ya que hay un número menor de picos y son más tardíos.
+
+## Forecast SARIMA
+Realizamos la predicción para los 10 días en febrero.
+```{r }
+forecast =  forecast(fit4, h=10) 
 ```
 
 ```{r }
-
+forecast %>% autoplot(df_demanda%>% filter(date >= "2020-01-01"))
 ```
+
+## Evaluación SARIMA
+
+Finalmente calculamos el error de la predicción:
+```{r }
+accuracy(forecast$energy, df_demanda_test$energy)
+```
+
+Vemos que el error es aceptable para el horizonte contemplado.
+
+# Modelo Dummy
+
+Para poder evaluzar el modelo y compararlo, se calcula un modelo dummy Naive estacional. Siempre aporta valor tener un punto de referencia. Para ello entrenamos en un mismo objeto el SARIMA obtenido antes y el Naive.
+
+```{r }
+fit_dummy <- df_demanda_train %>%
+  model(
+    arima = ARIMA(energy ~  pdq(2,0,3) +  PDQ(1,1,0)),
+    snaive = SNAIVE(energy)) 
+```
+
+Realizamos la predicción:
+
+```{r }
+fc <- fit_dummy %>% forecast(h = 10)
+```
+
+Representamos los resultados:
+```{r }
+fc %>%
+  filter(date >= "2020-01-01") %>% autoplot(df_demanda %>% filter(date >= "2020-01-01"))
+```
+
+Calculamos finalmente los errores:
+```{r }
+accuracy(fc, df_demanda_test)
+```
+
+Observamos que el MAPE del modelo SARIMA es un 1,3% menor que el modelo Naive, por lo que consideramos que es mejor el SARIMA.
+
+
+# Conclusiones
+
+Como conclusiones queríamos comentar que se han probado muchas configuraciones del modelo SARIMA, muchas no eran estables o no cumplían las condiciones de ser invertibles y estacionarias, tampoco acababan de cumplir todas las condiciones para unos residuos de ruido blanco, aunque no están muy alejadas. 
+
+Otra opción que se podría analizar es realizar un modelo de series temporales que prediga sólo la demanda del siguiente día y se vaya actualizando con los datos reales a la hora de predecir el siguiente día, así para los 10 días. Realmente es como se predice la demanda eléctrica ya que se compra con un día de antelación (posteriormente hay ajustes). Sin embargo, por falta de tiempo no se ha podido estudiar bien esta alternativa.
+
+
+
+
+
 
 
